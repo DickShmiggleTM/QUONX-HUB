@@ -1,0 +1,5 @@
+{
+  "name": "QUONX HUB",
+  "description": "An advanced, agentic AI IDE to create, edit, and manage software projects. Features a retro 90s OS-style dark theme, file explorer, AI chat, agent swarm capabilities, a code editor, and a knowledge graph for project visualization.",
+  "requestFramePermissions": []
+}
