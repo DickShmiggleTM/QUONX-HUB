@@ -1,73 +1,50 @@
-// This file contains the logic for interacting with AI models.
-// It now supports multiple providers: Google Gemini, Ollama, and LM Studio.
-// Note: In a real sandboxed environment, local fetches will fail, but the code structure is correct.
-
-import { GoogleGenAI, Content } from "@google/genai";
+import { GoogleGenerativeAI, Content } from "@google/generative-ai";
 import { ChatMessage, Agent, ModelProvider, SettingsState, OllamaTagResponse, LMStudioModelResponse } from '../types';
 
-// --- GEMINI API ---
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+// This needs to be initialized in the main process where the environment variables are loaded.
+let genAI;
 
-// --- LOCAL MODEL FETCHERS ---
+const initializeGenAI = () => {
+    if (!genAI && process.env.GEMINI_API_KEY) {
+        genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    }
+    return genAI;
+}
 
 /**
  * Fetches the list of available models from a running Ollama server.
- * @param baseUrl - The base URL of the Ollama server.
- * @returns A promise that resolves to an array of model names.
  */
 export const fetchOllamaModels = async (baseUrl: string): Promise<string[]> => {
     try {
         const response = await fetch(`${baseUrl}/api/tags`);
-        if (!response.ok) {
-            throw new Error(`Ollama server returned status ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`Ollama server returned status ${response.status}`);
         const data: OllamaTagResponse = await response.json();
         return data.models.map(model => model.name);
     } catch (error) {
-        console.warn("Could not fetch Ollama models:", error);
-        return []; // Return empty array on error
+        console.warn(`Could not fetch Ollama models from ${baseUrl}:`, (error as Error).message);
+        return [];
     }
 };
 
 /**
  * Fetches the list of available models from a running LM Studio server.
- * @param baseUrl - The base URL of the LM Studio server (e.g., http://localhost:1234/v1).
- * @returns A promise that resolves to an array of model IDs.
  */
 export const fetchLmStudioModels = async (baseUrl: string): Promise<string[]> => {
     try {
+        // LM Studio uses an OpenAI-compatible endpoint
         const response = await fetch(`${baseUrl}/models`);
-        if (!response.ok) {
-            throw new Error(`LM Studio server returned status ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`LM Studio server returned status ${response.status}`);
         const data: LMStudioModelResponse = await response.json();
         return data.data.map(model => model.id);
     } catch (error) {
-        console.warn("Could not fetch LM Studio models:", error);
-        return []; // Return empty array on error
+        console.warn(`Could not fetch LM Studio models from ${baseUrl}:`, (error as Error).message);
+        return [];
     }
 };
 
-
-// --- MOCKED API for Local Models ---
-const getMockedLocalResponse = (provider: string, model: string): Promise<string> => {
-     return new Promise(resolve => {
-        setTimeout(() => {
-            resolve(`[SIMULATED RESPONSE]\nThis is a response from your local model '${model}' via ${provider}. The actual fetch would be blocked in this environment, but this demonstrates the connection is ready.`);
-        }, 500 + Math.random() * 500);
-    });
-}
-
-// --- SERVICE FUNCTIONS ---
-
 /**
  * Generates a chat response from the selected AI provider.
- * @param prompt - The user's prompt.
- * @param history - The chat history.
- * @param agents - The active AI agents.
- * @param provider - The selected model provider.
- * @param settings - The configuration for local models, including which model to use.
- * @returns A string with the AI's response.
+ * This function should only be called from the main process.
  */
 export const generateChatResponse = async (
   prompt: string,
@@ -76,63 +53,70 @@ export const generateChatResponse = async (
   provider: ModelProvider,
   settings: SettingsState
 ): Promise<string> => {
-  console.log(`Generating chat response using ${provider}`);
   const systemPrompt = agents.map(a => a.systemPrompt).join('\n\n');
 
-  // Helper function to create OpenAI-compatible body
-  const createOpenAIBody = (model: string) => ({
-      model: model,
-      messages: [
-          { role: 'system', content: systemPrompt },
-          ...history.filter(m => m.sender === 'user' || m.sender === 'ai').map(m => ({
-              role: m.sender === 'user' ? 'user' : 'assistant',
-              content: m.text
-          })),
-          { role: 'user', content: prompt }
-      ]
-  });
+  // Common message format for OpenAI-compatible APIs (Ollama, LM Studio)
+  const openAIMessages = [
+      { role: 'system', content: systemPrompt },
+      ...history.filter(m => m.sender === 'user' || m.sender === 'ai').map(m => ({
+          role: m.sender === 'user' ? 'user' : 'assistant',
+          content: m.text
+      })),
+      { role: 'user', content: prompt }
+  ];
 
   switch (provider) {
     case 'ollama':
-      console.log(`Sending to Ollama at ${settings.ollamaUrl} with model ${settings.ollamaModel}`);
-      // In a real app, this would be a live fetch call.
-      // const response = await fetch(`${settings.ollamaUrl}/api/chat`, { method: 'POST', body: JSON.stringify(createOpenAIBody(settings.ollamaModel)) });
-      // const data = await response.json(); return data.message.content;
-      return getMockedLocalResponse('Ollama', settings.ollamaModel);
+      const ollamaResponse = await fetch(`${settings.ollamaUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: settings.ollamaModel,
+          messages: openAIMessages,
+          stream: false
+        }),
+      });
+      if (!ollamaResponse.ok) throw new Error(`Ollama request failed with status ${ollamaResponse.status}`);
+      const ollamaData = await ollamaResponse.json();
+      return ollamaData.message.content;
 
     case 'lmstudio':
-      console.log(`Sending to LM Studio at ${settings.lmstudioUrl} with model ${settings.lmstudioModel}`);
-      // const response = await fetch(`${settings.lmstudioUrl}/chat/completions`, { method: 'POST', body: JSON.stringify(createOpenAIBody(settings.lmstudioModel)) });
-      // const data = await response.json(); return data.choices[0].message.content;
-      return getMockedLocalResponse('LM Studio', settings.lmstudioModel);
+      const lmStudioResponse = await fetch(`${settings.lmstudioUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: settings.lmstudioModel,
+          messages: openAIMessages,
+          stream: false,
+        }),
+      });
+      if (!lmStudioResponse.ok) throw new Error(`LM Studio request failed with status ${lmStudioResponse.status}`);
+      const lmStudioData = await lmStudioResponse.json();
+      return lmStudioData.choices[0].message.content;
 
     case 'gemini':
     default:
-        if (!process.env.API_KEY) {
-            throw new Error("API_KEY environment variable not set for Gemini.");
-        }
-        try {
-            const model = 'gemini-2.5-flash';
-            const contents: Content[] = history
-                .filter(m => m.sender === 'user' || m.sender === 'ai')
-                .map(m => ({
-                    role: m.sender === 'user' ? 'user' : 'model',
-                    parts: [{ text: m.text }]
-                }));
-            contents.push({ role: 'user', parts: [{ text: prompt }] });
-            
-            const response = await ai.models.generateContent({
-                model,
-                contents,
-                config: {
-                    systemInstruction: systemPrompt,
-                }
-            });
-            
-            return response.text;
-        } catch (error) {
-            console.error("Gemini API Error:", error);
-            throw error;
-        }
+      const ai = initializeGenAI();
+      if (!ai) {
+          throw new Error("GEMINI_API_KEY not configured. Please set it in your .env.local file.");
+      }
+
+      const model = ai.getGenerativeModel({
+          model: settings.geminiModel,
+          systemInstruction: systemPrompt,
+      });
+
+      const geminiHistory: Content[] = history
+        .filter(m => m.sender === 'user' || m.sender === 'ai')
+        .map(m => ({
+            role: m.sender === 'user' ? 'user' : 'model',
+            parts: [{ text: m.text }]
+        }));
+
+      const result = await model.generateContent({
+          contents: [...geminiHistory, { role: 'user', parts: [{ text: prompt }] }]
+      });
+
+      return result.response.text();
   }
 };

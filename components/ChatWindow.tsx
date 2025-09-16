@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, Agent, ModelProvider, Checkpoint, SettingsState } from '../types';
-import { generateChatResponse, fetchOllamaModels, fetchLmStudioModels } from '../services/geminiService';
+import { fetchOllamaModels, fetchLmStudioModels } from '../services/geminiService';
 import Button from './Button';
 import Icon from './Icon';
 
@@ -81,14 +81,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeAgents, messages, setMess
         lmstudioModel: modelProvider === 'lmstudio' ? selectedLocalModel : settings.lmstudioModel,
       }
       
-      const aiResponse = await generateChatResponse(input, messages, activeAgents, modelProvider, activeSettings);
-      const finalMessage: ChatMessage = {
-        id: thinkingMessageId,
-        sender: 'ai',
-        agentName: activeAgents.map(a => a.name).join(', '),
-        text: aiResponse,
-      };
-      setMessages(prev => prev.map(m => m.id === thinkingMessageId ? finalMessage : m));
+      const result = await window.ipc.invoke('chat:generate', input, messages, activeAgents, modelProvider, activeSettings);
+
+      if (result.success) {
+        const finalMessage: ChatMessage = {
+          id: thinkingMessageId,
+          sender: 'ai',
+          agentName: activeAgents.map(a => a.name).join(', '),
+          text: result.response,
+        };
+        setMessages(prev => prev.map(m => m.id === thinkingMessageId ? finalMessage : m));
+      } else {
+        throw new Error(result.error);
+      }
     } catch (error) {
       console.error(error);
       const errorMessage: ChatMessage = {

@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# electron
+/dist/
+/electron-builder-assets/
+.env.local

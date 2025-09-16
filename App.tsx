@@ -11,7 +11,7 @@ import DocRag from './components/DocRag';
 import Settings from './components/Settings'; // Import the new Settings component
 import AnimatedBackground from './components/AnimatedBackground';
 import { WindowInstance, AppWindow, ChatMessage, Agent, Checkpoint, SettingsState, FileNode } from './types';
-import { INITIAL_AGENTS, MOCK_FILE_SYSTEM, DEFAULT_SETTINGS } from './constants';
+import { INITIAL_AGENTS, DEFAULT_SETTINGS } from './constants';
 
 const App: React.FC = () => {
   const [windows, setWindows] = useState<WindowInstance[]>([]);
@@ -19,7 +19,7 @@ const App: React.FC = () => {
   const [activeAgents, setActiveAgents] = useState<Agent[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
-  const [fileSystem] = useState<FileNode[]>(MOCK_FILE_SYSTEM);
+  const [fileSystemTree, setFileSystemTree] = useState<FileNode | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
 
@@ -100,6 +100,67 @@ const App: React.FC = () => {
           }
       });
   };
+
+  const handleSelectDirectory = async () => {
+    try {
+      const dirPath = await window.ipc.invoke('open-directory-dialog');
+      if (dirPath) {
+        const stats = await window.fs.stat(dirPath);
+        setFileSystemTree({
+          id: dirPath,
+          name: dirPath.split(/[\\/]/).pop() || dirPath,
+          type: 'directory',
+          path: dirPath,
+          children: [],
+        });
+      }
+    } catch (error) {
+      alert(`Error selecting directory: ${(error as Error).message}`);
+    }
+  };
+
+  const handleToggleNode = async (nodePath: string) => {
+    if (!fileSystemTree) return;
+
+    const updateNode = async (node: FileNode): Promise<FileNode> => {
+      if (node.path === nodePath) {
+        if (node.type === 'directory' && (!node.children || node.children.length === 0)) {
+          try {
+            const files = await window.fs.readdir(node.path);
+            const children = await Promise.all(
+              files.map(async (file) => {
+                const filePath = await window.path.join(node.path, file.name);
+                const stats = await window.fs.stat(filePath);
+                return {
+                  id: filePath,
+                  name: file.name,
+                  type: stats.isDirectory() ? 'directory' : 'file',
+                  path: filePath,
+                  children: stats.isDirectory() ? [] : undefined,
+                };
+              })
+            );
+            return { ...node, children, isOpen: true };
+          } catch (error) {
+            alert(`Error reading directory "${node.name}": ${(error as Error).message}`);
+            return { ...node, isOpen: false }; // Keep it closed on error
+          }
+        } else {
+          return { ...node, isOpen: !node.isOpen };
+        }
+      }
+
+      if (node.children) {
+        const newChildren = await Promise.all(node.children.map(child => updateNode(child)));
+        return { ...node, children: newChildren };
+      }
+
+      return node;
+    };
+
+    const newTree = await updateNode(fileSystemTree);
+    setFileSystemTree(newTree);
+  };
   
   const handleFileSelect = (file: FileNode) => {
     setSelectedFile(file);
@@ -147,11 +208,16 @@ const App: React.FC = () => {
       case AppWindow.AGENT_MANAGER:
         return <AgentManager agents={agents} setAgents={setAgents} activeAgents={activeAgents} setActiveAgents={setActiveAgents} />;
       case AppWindow.FILE_EXPLORER:
-        return <FileExplorer fileSystem={fileSystem} onFileSelect={handleFileSelect} />;
+        return <FileExplorer
+                    fileSystemTree={fileSystemTree}
+                    onFileSelect={handleFileSelect}
+                    onSelectDirectory={handleSelectDirectory}
+                    onToggleNode={handleToggleNode}
+                />;
       case AppWindow.CODE_EDITOR:
         return <CodeEditor file={selectedFile} />;
       case AppWindow.KNOWLEDGE_GRAPH:
-        return <KnowledgeGraph fileSystem={fileSystem} />;
+        return <KnowledgeGraph fileSystemTree={fileSystemTree} />;
       case AppWindow.SWARM_MANAGER:
         return <SwarmManager />;
       case AppWindow.DOC_RAG:

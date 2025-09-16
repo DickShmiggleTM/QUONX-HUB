@@ -22,6 +22,7 @@ export const INITIAL_AGENTS: Agent[] = [
 ];
 
 export const DEFAULT_SETTINGS: SettingsState = {
+    geminiModel: 'gemini-1.5-flash',
   ollamaUrl: 'http://localhost:11434',
   ollamaModel: 'llama3',
   lmstudioUrl: 'http://localhost:1234/v1',
