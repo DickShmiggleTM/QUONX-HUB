@@ -3,28 +3,33 @@ import * as d3 from 'd3';
 import { FileNode, GraphNode, GraphLink } from '../types';
 
 interface KnowledgeGraphProps {
-  fileSystem: FileNode[];
+  fileSystemTree: FileNode | null;
 }
 
-const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ fileSystem }) => {
+const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ fileSystemTree }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   
   const { nodes, links } = useMemo(() => {
+    if (!fileSystemTree) {
+      return { nodes: [], links: [] };
+    }
+
     const graphNodes: GraphNode[] = [];
     const graphLinks: GraphLink[] = [];
 
-    const traverse = (node: FileNode, parentId?: string) => {
-      graphNodes.push({ id: node.id, name: node.name, type: node.type });
-      if (parentId) {
-        graphLinks.push({ source: parentId, target: node.id });
-      }
+    const traverse = (node: FileNode) => {
+      graphNodes.push({ id: node.path, name: node.name, type: node.type });
       if (node.children) {
-        node.children.forEach(child => traverse(child, node.id));
+        node.children.forEach(child => {
+          graphLinks.push({ source: node.path, target: child.path });
+          traverse(child);
+        });
       }
     };
-    fileSystem.forEach(root => traverse(root));
+
+    traverse(fileSystemTree);
     return { nodes: graphNodes, links: graphLinks };
-  }, [fileSystem]);
+  }, [fileSystemTree]);
 
 
   useEffect(() => {
@@ -34,8 +39,8 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ fileSystem }) => {
     svg.selectAll("*").remove(); // Clear previous render
 
     const isDarkMode = document.documentElement.classList.contains('dark');
-    const width = parseInt(svg.style("width"));
-    const height = parseInt(svg.style("height"));
+    const width = svgRef.current.clientWidth;
+    const height = svgRef.current.clientHeight;
 
     const simulation = d3.forceSimulation(nodes)
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(70))
@@ -103,6 +108,14 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ fileSystem }) => {
     }
 
   }, [nodes, links]);
+
+  if (!fileSystemTree) {
+    return (
+        <div className="w-full h-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
+            <p className="text-black dark:text-white">Select a directory to build the knowledge graph.</p>
+        </div>
+    );
+  }
 
   return (
     <div className="w-full h-full bg-gray-200 dark:bg-gray-800">

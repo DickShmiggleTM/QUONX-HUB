@@ -30,7 +30,23 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings }) => {
 
   return (
     <div className="p-4 h-full flex flex-col text-lg bg-inherit text-black dark:text-gray-200 space-y-6">
-      <h3 className="text-xl border-b-2 border-gray-400 dark:border-gray-600">Local Model Settings</h3>
+      <h3 className="text-xl border-b-2 border-gray-400 dark:border-gray-600">Model Settings</h3>
+
+      {/* Gemini Settings */}
+      <div className="space-y-2">
+        <h4 className="font-bold text-lg">Google Gemini</h4>
+        <div className="flex flex-col space-y-1">
+          <label htmlFor="geminiModel" className="text-sm">Model Name</label>
+          <input
+            type="text"
+            id="geminiModel"
+            name="geminiModel"
+            value={settings.geminiModel}
+            onChange={handleInputChange}
+            className="p-1 bg-white dark:bg-gray-800 border-2 border-gray-500 dark:border-gray-400 focus:outline-none"
+          />
+        </div>
+      </div>
 
       {/* Ollama Settings */}
       <div className="space-y-2">

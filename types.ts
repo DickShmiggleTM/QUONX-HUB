@@ -38,6 +38,7 @@ export interface Checkpoint {
 }
 
 export interface SettingsState {
+  geminiModel: string;
   ollamaUrl: string;
   ollamaModel: string; // This will now serve as the default/selected model
   lmstudioUrl: string;
